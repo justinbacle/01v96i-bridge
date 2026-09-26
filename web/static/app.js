@@ -1,52 +1,70 @@
-// Read-only view of the console. Step 1 of docs/phone-control-plan.md: it proves
-// console -> parser -> state -> phone before anything can write to the desk.
+"use strict";
+
+// FOH view of the console: every channel fader and mute, live in both
+// directions. The backend pushes a snapshot at most every 50 ms; strips are
+// built once and updated in place so a rebuild never lands under a finger
+// mid-drag, and updates for the strip being dragged are ignored entirely --
+// the phone is the source of truth until the touch ends.
+//
+// Sliders work in the console's own throw space (0..1023) rather than dB, with
+// the same taper as protocol.py: a linear-dB slider spends most of its travel
+// on the -60..-90 dB region nobody uses, while the console reserves it for the
+// working range around unity.
 
 const statusEl = document.getElementById("status");
 const channelsEl = document.getElementById("channels");
+const masterEl = document.getElementById("master");
+const masterFaderEl = document.querySelector("[data-master-fader]");
 const masterDbEl = document.querySelector("[data-master-db]");
 const masterMuteEl = document.querySelector("[data-master-mute]");
 
-let socket = null;
-let retryDelay = 500;
+const THROW_MAX = 1023;        // the console's fader resolution (HIGH)
+const SEND_INTERVAL_MS = 50;   // ~20 updates/s per fader, like the backend's own throttle
+const FINAL_TIMEOUT_MS = 200;  // a drag that stops moving ends after this
+
+// (raw, dB) breakpoints, interpolated linearly in dB -- identical to
+// protocol.FADER_LAW so the slider's feel matches the physical fader.
+const FADER_LAW = [
+  [0, -90.0], [55, -70.0], [166, -50.0], [331, -30.0],
+  [552, -10.0], [823, 0.0], [1023, 10.0],
+];
+
+// Stereo master tops out at unity instead of +10 dB.
+const MASTER_LAW = FADER_LAW.map(([raw, db]) => [raw, db - 10.0]);
+
+function lawDb(law, raw) {
+  raw = Math.max(law[0][0], Math.min(law[law.length - 1][0], raw));
+  for (let i = 1; i < law.length; i++) {
+    const [r0, d0] = law[i - 1], [r1, d1] = law[i];
+    if (raw <= r1) return d0 + (d1 - d0) * (raw - r0) / (r1 - r0);
+  }
+  return law[law.length - 1][1];
+}
+
+function lawRaw(law, db) {
+  db = Math.max(law[0][1], Math.min(law[law.length - 1][1], db));
+  for (let i = 1; i < law.length; i++) {
+    const [r0, d0] = law[i - 1], [r1, d1] = law[i];
+    if (db <= d1) return r0 + (r1 - r0) * (db - d0) / (d1 - d0);
+  }
+  return law[law.length - 1][0];
+}
 
 function formatDb(db) {
   if (db === null || db === undefined) return "–";
-  if (db <= -89) return "-∞";          // the console's bottom stop
+  if (db <= -90) return "-∞";
   return `${db >= 0 ? "+" : ""}${db.toFixed(1)} dB`;
 }
 
-function renderChannel(channel) {
-  const row = document.createElement("section");
-  row.className = "strip";
-  row.innerHTML = `
-    <span class="label"><span class="number">${channel.index + 1}</span>${channel.label}</span>
-    <span class="value">${formatDb(channel.fader_db)}</span>
-    <span class="mute ${channel.muted ? "on" : ""}">${channel.muted ? "MUTE" : "ON"}</span>`;
-  return row;
-}
+let socket = null;
+let retryDelay = 500;
+let strips = new Map();     // channel index -> {fader, db, mute}
+let dragging = new Set();   // channel indices whose fader is under a finger
+let masterDragging = false;
+let lastSentAt = new Map();
+let finalTimers = new Map();
 
-function render(state) {
-  masterDbEl.textContent = formatDb(state.master.fader_db);
-  masterMuteEl.textContent = state.master.muted ? "MUTE" : "ON";
-  masterMuteEl.classList.toggle("on", Boolean(state.master.muted));
-
-  channelsEl.replaceChildren();
-  if (!state.channels.length) {
-    const empty = document.createElement("p");
-    empty.className = "empty";
-    empty.textContent = "Waiting for the console…";
-    channelsEl.append(empty);
-    return;
-  }
-  for (const channel of state.channels) {
-    channelsEl.append(renderChannel(channel));
-  }
-}
-
-function setStatus(text, online) {
-  statusEl.textContent = text;
-  statusEl.className = online ? "online" : "offline";
-}
+// --- websocket ----------------------------------------------------------- //
 
 function connect() {
   const protocol = location.protocol === "https:" ? "wss" : "ws";
@@ -68,6 +86,156 @@ function connect() {
     setTimeout(connect, retryDelay);
     retryDelay = Math.min(retryDelay * 2, 5000);
   });
+}
+
+function send(command) {
+  if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(command));
+}
+
+// --- fader commands ------------------------------------------------------ //
+
+// key identifies what is being dragged ("ch/5" or "master") for throttling.
+function sendFader(key, raw, final) {
+  const now = Date.now();
+  if (!final && now - (lastSentAt.get(key) || 0) < SEND_INTERVAL_MS) return;
+  lastSentAt.set(key, now);
+  if (key === "master") {
+    send({action: "master_fader", raw: Math.round(raw), final: !!final});
+  } else {
+    const channel = Number(key.split("/")[1]);
+    send({action: "fader", channel: channel, raw: Math.round(raw), final: !!final});
+  }
+}
+
+// A touch that stops moving is still a drag until the finger lifts; the
+// timeout guarantees the settled value still gets its final send.
+function scheduleFinal(key, raw) {
+  clearTimeout(finalTimers.get(key));
+  finalTimers.set(key, setTimeout(() => {
+    if (key === "master") dragging.delete("master"); else dragging.delete(Number(key.split("/")[1]));
+    sendFader(key, raw, true);
+  }, FINAL_TIMEOUT_MS));
+}
+
+// --- rendering ------------------------------------------------------------ //
+
+function render(state) {
+  renderMaster(state);
+  const seen = new Set();
+  for (const channel of state.channels) {
+    seen.add(channel.index);
+    renderStrip(channel);
+  }
+  for (const [index, strip] of strips) {
+    if (!seen.has(index)) { strip.root.remove(); strips.delete(index); }
+  }
+}
+
+function renderMaster(state) {
+  const db = state.master.fader_db;
+  if (!masterDragging) {
+    masterFaderEl.value = db === null ? 0 : Math.round(lawRaw(MASTER_LAW, db));
+  }
+  masterDbEl.textContent = formatDb(db);
+  masterMuteEl.textContent = state.master.muted ? "MUTE" : "ON";
+  masterMuteEl.classList.toggle("on", Boolean(state.master.muted));
+}
+
+function renderStrip(channel) {
+  let strip = strips.get(channel.index);
+  if (!strip) {
+    strip = buildStrip(channel.index, channel.label);
+    strips.set(channel.index, strip);
+    channelsEl.append(strip.root);
+  }
+  if (!dragging.has(channel.index)) {
+    strip.fader.value = channel.fader_db === null ? 0
+      : Math.round(lawRaw(FADER_LAW, channel.fader_db));
+    strip.db.textContent = formatDb(channel.fader_db);
+  }
+  strip.mute.textContent = channel.muted ? "MUTE" : "ON";
+  strip.mute.classList.toggle("on", Boolean(channel.muted));
+}
+
+function wireFader(faderEl, key, onInput) {
+  faderEl.addEventListener("pointerdown", () => {
+    dragging.add(key === "master" ? "master" : Number(key.split("/")[1]));
+    clearTimeout(finalTimers.get(key));
+  });
+  faderEl.addEventListener("input", () => {
+    dragging.add(key === "master" ? "master" : Number(key.split("/")[1]));
+    const raw = parseFloat(faderEl.value);
+    onInput(raw);
+    scheduleFinal(key, raw);
+    sendFader(key, raw, false);
+  });
+  const release = () => {
+    const dragKey = key === "master" ? "master" : Number(key.split("/")[1]);
+    if (!dragging.has(dragKey)) return;
+    dragging.delete(dragKey);
+    clearTimeout(finalTimers.get(key));
+    finalTimers.delete(key);
+    sendFader(key, parseFloat(faderEl.value), true);
+  };
+  faderEl.addEventListener("pointerup", release);
+  faderEl.addEventListener("pointercancel", release);
+  faderEl.addEventListener("lostpointercapture", release);
+}
+
+function buildStrip(index, label) {
+  const root = document.createElement("section");
+  root.className = "strip";
+
+  const nameEl = document.createElement("span");
+  nameEl.className = "label";
+  nameEl.innerHTML = `<span class="number">${index + 1}</span>${label}`;
+
+  const fader = document.createElement("input");
+  fader.type = "range";
+  fader.min = 0;
+  fader.max = THROW_MAX;
+  fader.step = 1;
+  fader.value = 0;
+
+  const db = document.createElement("span");
+  db.className = "value";
+
+  const mute = document.createElement("button");
+  mute.className = "mute";
+  mute.type = "button";
+
+  wireFader(fader, `ch/${index}`, raw => {
+    db.textContent = formatDb(lawDb(FADER_LAW, raw));
+  });
+
+  mute.addEventListener("click", () => {
+    const strip = strips.get(index);
+    const muted = !strip.mute.classList.contains("on");
+    send({action: "mute", channel: index, muted: muted});
+    // Optimistic: the next broadcast confirms or corrects it.
+    strip.mute.textContent = muted ? "MUTE" : "ON";
+    strip.mute.classList.toggle("on", muted);
+  });
+
+  root.append(nameEl, fader, db, mute);
+  return {root, fader, db, mute};
+}
+
+// The master strip lives in the HTML; it only needs wiring.
+wireFader(masterFaderEl, "master", raw => {
+  masterDbEl.textContent = formatDb(lawDb(MASTER_LAW, raw));
+});
+
+masterMuteEl.addEventListener("click", () => {
+  const muted = !masterMuteEl.classList.contains("on");
+  send({action: "master_mute", muted: muted});
+  masterMuteEl.textContent = muted ? "MUTE" : "ON";
+  masterMuteEl.classList.toggle("on", muted);
+});
+
+function setStatus(text, online) {
+  statusEl.textContent = text;
+  statusEl.className = online ? "online" : "offline";
 }
 
 connect();

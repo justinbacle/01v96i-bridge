@@ -155,6 +155,9 @@ def main() -> int:
     elif args.sync:
         logging.warning("No MIDI output found: starting without console state.")
 
+    if phone is not None and outport is not None:
+        phone.attach_outport(outport)
+
     receiver = None
     if listen_port is not None and backend_name != "reaper":
         logging.info("Return path is only implemented for the reaper backend.")
