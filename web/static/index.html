@@ -13,14 +13,14 @@
 </header>
 
 <main>
+  <div id="channels"></div>
+
   <section id="master" class="strip master">
-    <span class="label">Master</span>
-    <input type="range" data-master-fader min="0" max="1023" step="1" value="0">
+    <span class="label"><span class="number">ST</span>Master</span>
+    <div class="fader" data-master-fader></div>
     <span class="value" data-master-db>–</span>
     <button class="mute" data-master-mute type="button"></button>
   </section>
-
-  <div id="channels"></div>
 </main>
 
 <script src="app.js"></script>

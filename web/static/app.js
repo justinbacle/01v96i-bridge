@@ -134,7 +134,7 @@ function render(state) {
 function renderMaster(state) {
   const db = state.master.fader_db;
   if (!masterDragging) {
-    masterFaderEl.value = db === null ? 0 : Math.round(lawRaw(MASTER_LAW, db));
+    masterHandle.setRaw(db === null ? 0 : Math.round(lawRaw(MASTER_LAW, db)), false);
   }
   masterDbEl.textContent = formatDb(db);
   masterMuteEl.textContent = state.master.muted ? "MUTE" : "ON";
@@ -146,56 +146,153 @@ function renderStrip(channel) {
   if (!strip) {
     strip = buildStrip(channel.index, channel.label);
     strips.set(channel.index, strip);
-    channelsEl.append(strip.root);
+    insertStripInOrder(strip.root, channel.index);
   }
   if (!dragging.has(channel.index)) {
-    strip.fader.value = channel.fader_db === null ? 0
-      : Math.round(lawRaw(FADER_LAW, channel.fader_db));
+    strip.handle.setRaw(channel.fader_db === null ? 0
+      : Math.round(lawRaw(FADER_LAW, channel.fader_db)), false);
     strip.db.textContent = formatDb(channel.fader_db);
   }
   strip.mute.textContent = channel.muted ? "MUTE" : "ON";
   strip.mute.classList.toggle("on", Boolean(channel.muted));
 }
 
-function wireFader(faderEl, key, onInput) {
-  faderEl.addEventListener("pointerdown", () => {
-    dragging.add(key === "master" ? "master" : Number(key.split("/")[1]));
-    clearTimeout(finalTimers.get(key));
+// Strips arrive in whatever order the console talks about channels; keep the
+// desk's own numbering on screen.
+function insertStripInOrder(root, index) {
+  for (const other of channelsEl.children) {
+    if (Number(other.dataset.index) > index) {
+      channelsEl.insertBefore(root, other);
+      return;
+    }
+  }
+  channelsEl.append(root);
+}
+
+// A custom fader: a cap that moves along a slot. Pointer events, because the
+// horizontal/vertical split is ours to decide -- a mostly-horizontal gesture
+// scrolls the mixer (never a fader move), a mostly-vertical one drags the cap.
+const CAP_INSET = 12;              // px between the slot ends and the cap centre
+
+function wireFader(faderEl, key, law, onInput) {
+  const cap = document.createElement("div");
+  cap.className = "cap";
+  const unity = document.createElement("div");
+  unity.className = "unity";
+  faderEl.append(cap, unity);
+  faderEl.classList.add("fader");
+
+  let raw = 0;
+  let dragState = null;   // {id, y0, raw0, claimed}
+
+  const dragKey = () => (key === "master" ? "master" : Number(key.split("/")[1]));
+
+  function trackRect() {
+    const height = faderEl.clientHeight - 2 * CAP_INSET;
+    return {top: CAP_INSET, height};
+  }
+
+  function positionCap() {
+    const {top, height} = trackRect();
+    // All positioning is done with the cap CENTRE: what the finger tracks,
+    // what the notch marks, and what a tap means. The cap element is placed
+    // from its top edge, half a cap above the centre -- mixing the two up is
+    // how a cap sitting on the 0 dB notch reads +2 dB on the desk.
+    const centre = top + height * (1 - raw / THROW_MAX);
+    cap.style.top = `${centre - cap.offsetHeight / 2}px`;
+    unity.style.top = `${top + height * (1 - lawRaw(law, 0) / THROW_MAX)}px`;
+  }
+
+  function setRaw(value, fromUser) {
+    raw = Math.max(0, Math.min(THROW_MAX, Math.round(value)));
+    positionCap();
+    if (fromUser) {
+      onInput(raw);
+      scheduleFinal(key, raw);
+      sendFader(key, raw, false);
+    }
+  }
+
+  faderEl.addEventListener("pointerdown", (event) => {
+    if (dragState) return;
+    dragState = {id: event.pointerId, x0: event.clientX, y0: event.clientY,
+                 raw0: raw, claimed: false};
+    faderEl.setPointerCapture(event.pointerId);
+    event.preventDefault();
   });
-  faderEl.addEventListener("input", () => {
-    dragging.add(key === "master" ? "master" : Number(key.split("/")[1]));
-    const raw = parseFloat(faderEl.value);
-    onInput(raw);
-    scheduleFinal(key, raw);
-    sendFader(key, raw, false);
+
+  faderEl.addEventListener("pointermove", (event) => {
+    if (!dragState || event.pointerId !== dragState.id) return;
+    if (!dragState.claimed) {
+      const dx = Math.abs(event.clientX - dragState.x0);
+      const dy = Math.abs(event.clientY - dragState.y0);
+      if (dx < 4 && dy < 4) return;                 // still deciding
+      // A mostly-horizontal gesture is a scroll, not a fader move: release
+      // the pointer so the scroller takes over.
+      if (dx > dy) {
+        faderEl.releasePointerCapture(event.pointerId);
+        dragState = null;
+        return;
+      }
+      dragState.claimed = true;
+      dragging.add(dragKey());
+      faderEl.classList.add("dragging");
+      clearTimeout(finalTimers.get(key));
+    }
+    const dy = event.clientY - dragState.y0;
+    const {height} = trackRect();
+    setRaw(dragState.raw0 - (dy / height) * THROW_MAX, true);
+    event.preventDefault();
   });
-  const release = () => {
-    const dragKey = key === "master" ? "master" : Number(key.split("/")[1]);
-    if (!dragging.has(dragKey)) return;
-    dragging.delete(dragKey);
-    clearTimeout(finalTimers.get(key));
-    finalTimers.delete(key);
-    sendFader(key, parseFloat(faderEl.value), true);
+
+  const release = (event) => {
+    if (!dragState || event.pointerId !== dragState.id) return;
+    const wasClaimed = dragState.claimed;
+    dragState = null;
+    faderEl.classList.remove("dragging");
+    if (wasClaimed) {
+      clearTimeout(finalTimers.get(key));
+      finalTimers.delete(key);
+      dragging.delete(dragKey());
+      sendFader(key, raw, true);
+      suppressClickUntil = Date.now() + 400;
+    }
   };
   faderEl.addEventListener("pointerup", release);
   faderEl.addEventListener("pointercancel", release);
   faderEl.addEventListener("lostpointercapture", release);
+
+  // Tap anywhere on the track jumps the cap centre there -- unless this click
+  // is the tail of a drag that just ended.
+  let suppressClickUntil = 0;
+  faderEl.addEventListener("click", (event) => {
+    if (Date.now() < suppressClickUntil) return;
+    const rect = faderEl.getBoundingClientRect();
+    const centreFromTop = event.clientY - rect.top;
+    const {top, height} = trackRect();
+    const fromBottom = faderEl.clientHeight - CAP_INSET - centreFromTop;
+    setRaw((fromBottom / height) * THROW_MAX, true);
+    scheduleFinal(key, raw);
+    sendFader(key, raw, true);
+  });
+
+  // Keep the cap positioned when the layout changes size.
+  new ResizeObserver(positionCap).observe(faderEl);
+  positionCap();
+
+  return {setRaw};
 }
 
 function buildStrip(index, label) {
   const root = document.createElement("section");
   root.className = "strip";
+  root.dataset.index = index;
 
   const nameEl = document.createElement("span");
   nameEl.className = "label";
   nameEl.innerHTML = `<span class="number">${index + 1}</span>${label}`;
 
-  const fader = document.createElement("input");
-  fader.type = "range";
-  fader.min = 0;
-  fader.max = THROW_MAX;
-  fader.step = 1;
-  fader.value = 0;
+  const fader = document.createElement("div");
 
   const db = document.createElement("span");
   db.className = "value";
@@ -204,7 +301,7 @@ function buildStrip(index, label) {
   mute.className = "mute";
   mute.type = "button";
 
-  wireFader(fader, `ch/${index}`, raw => {
+  const handle = wireFader(fader, `ch/${index}`, FADER_LAW, raw => {
     db.textContent = formatDb(lawDb(FADER_LAW, raw));
   });
 
@@ -218,11 +315,11 @@ function buildStrip(index, label) {
   });
 
   root.append(nameEl, fader, db, mute);
-  return {root, fader, db, mute};
+  return {root, fader, handle, db, mute};
 }
 
 // The master strip lives in the HTML; it only needs wiring.
-wireFader(masterFaderEl, "master", raw => {
+const masterHandle = wireFader(masterFaderEl, "master", MASTER_LAW, raw => {
   masterDbEl.textContent = formatDb(lawDb(MASTER_LAW, raw));
 });
 
