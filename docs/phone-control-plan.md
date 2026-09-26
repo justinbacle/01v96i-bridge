@@ -41,6 +41,13 @@ Consequences for the build: names come from the console, not the setup page. Use
 name where there is room and the short name on a fader strip. Adding it is one row in
 `MESSAGES`, a `ChannelNamed` event, and name requests folded into `state_requests()`.
 
+Two caveats found while checking:
+
+- **ST-IN 1–4 have no name** — only the 32 mono channels do. The four stereo inputs need a
+  label from the setup page or a sensible default.
+- **Reading every name costs 640 requests**, about 600 ms. Fetch once at startup alongside
+  the existing state sync, not per view.
+
 ## Build order
 
 1. **State model and `--backend phone`.** HTTP server, WebSocket, and a page showing live
