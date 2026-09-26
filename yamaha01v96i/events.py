@@ -121,6 +121,18 @@ class AttenuationChanged(MixerEvent):
 
 
 @dataclass(frozen=True)
+class ChannelNameChar(MixerEvent):
+    """One character of a channel's name.
+
+    The console sends a message per character, so this mirrors the wire; use
+    protocol.name_text() to assemble the short and long names.
+    """
+    channel: int
+    index: int
+    char: str
+
+
+@dataclass(frozen=True)
 class SoloChanged(MixerEvent):
     channel: int
     soloed: bool

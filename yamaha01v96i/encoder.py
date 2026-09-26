@@ -151,6 +151,16 @@ def request_channel_fader(channel: int) -> List[int]:
     return parameter_request(_parser.EL_CH_FADER, 0, channel)
 
 
+def request_channel_name(channel: int, index: int) -> List[int]:
+    """Ask for one character of a channel's name (docs/01v96i.md §3.9).
+
+    Names live in the patch-data space, not the edit buffer, so this cannot use
+    parameter_request().
+    """
+    return [p.YAMAHA_ID, p.REQUEST_DEVICE_BYTE, p.GROUP_ID, p.MODEL_01V96I,
+            p.ADDRESS_PATCH, _parser.EL_CH_NAME, index, channel]
+
+
 def channel_bytes() -> List[int]:
     """Every channel byte worth requesting: the mono channels plus each ST-IN L slot.
 
@@ -184,6 +194,11 @@ def state_requests() -> List[List[int]]:
     requests.append(parameter_request(_parser.EL_MASTER_ON, 0, 0))
     for eq_param in list(p.EQ_PARAMS) + [_parser.EQ_ON_PARAM]:
         requests.append(parameter_request(_parser.EL_MASTER_EQ, eq_param, 0))
+
+    # Names are one request per character, and only the mono channels have them.
+    for channel in p.NAMED_CHANNELS:
+        for index in p.NAME_INDICES:
+            requests.append(request_channel_name(channel, index))
 
     for index in range(8):
         requests.append(parameter_request(_parser.EL_AUX_FADER, 0, index))

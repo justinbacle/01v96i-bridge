@@ -19,6 +19,7 @@ MODEL_UNIVERSAL = 0x7F      # "Universal" model ID
 MODEL_01V96I = 0x1A         # 01V96i-specific model ID
 
 ADDRESS_EDIT_BUFFER = 0x01
+ADDRESS_PATCH = 0x02
 ADDRESS_SETUP = 0x03
 ADDRESS_BACKUP = 0x04
 
@@ -49,6 +50,22 @@ def channel_index(b7: int) -> Optional[int]:
     if 0 <= offset < ST_IN_COUNT * 2:
         return None if offset % 2 else MONO_CHANNELS + offset // 2
     return None
+
+
+# --- Channel names (docs/01v96i.md §3.9) ------------------------------------- #
+
+# One character per message, the parameter number being the index. Only the 32
+# mono channels have names; ST-IN returns nothing.
+NAME_SHORT = range(0, 4)      # 4 characters
+NAME_LONG = range(4, 20)      # 16 characters
+NAME_INDICES = range(0, 20)
+NAMED_CHANNELS = range(0, MONO_CHANNELS)
+
+
+def name_text(characters: dict, indices: range) -> str:
+    """Assemble a name from {index: byte}, blanks for anything not yet seen."""
+    codes = (characters.get(i, 32) for i in indices)
+    return "".join(chr(c) if 32 <= c < 127 else " " for c in codes).rstrip()
 
 
 # --- The data field (docs/01v96i.md §4.1) ------------------------------------ #

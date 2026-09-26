@@ -20,6 +20,7 @@ _ = None  # reads as a wildcard in the tables below
 
 H = [p.YAMAHA_ID, p.DEVICE_BYTE, p.GROUP_ID]
 FORM_A = H + [p.MODEL_UNIVERSAL, p.ADDRESS_EDIT_BUFFER]
+FORM_PATCH = H + [p.MODEL_01V96I, p.ADDRESS_PATCH]
 FORM_SETUP = H + [p.MODEL_01V96I, p.ADDRESS_SETUP]
 FORM_BACKUP = H + [p.MODEL_01V96I, p.ADDRESS_BACKUP]
 
@@ -29,6 +30,7 @@ EL_CH_ON = 0x1A
 EL_PAN = 0x1B
 EL_CH_FADER = 0x1C
 EL_ATT = 0x1D
+EL_CH_NAME = 0x04
 EL_CH_EQ = 0x20
 EL_AUX_SEND = 0x23
 EL_SURROUND = 0x25
@@ -148,6 +150,15 @@ def _surround(data):
                             p.decode_value(data) / p.PAN_MAX)
 
 
+def _channel_name(data):
+    channel = _channel(data)
+    if channel is None:
+        return _linked_slot(data)
+    code = data[11]
+    return ev.ChannelNameChar(tuple(data), channel, data[6],
+                              chr(code) if 32 <= code < 127 else " ")
+
+
 def _solo(data):
     # Params 0 and 2 mirror each other on every press; act on one only.
     ch = _channel(data)
@@ -235,6 +246,8 @@ MESSAGES = [
      lambda d: p.is_channel_byte(d[7]) and d[6] in AUX_SEND_PARAMS, _aux_send),
     ("aux_master", FORM_A + [EL_AUX_FADER, 0, _, _, _, _, _],
      lambda d: 0 <= d[7] <= 7, _aux_master),
+    ("channel_name", FORM_PATCH + [EL_CH_NAME, _, _, 0, 0, 0, _],
+     lambda d: d[7] in p.NAMED_CHANNELS and d[6] in p.NAME_INDICES, _channel_name),
     ("solo", FORM_SETUP + [EL_SOLO, _, _, 0, 0, 0, _],
      lambda d: p.is_channel_byte(d[7]) and d[6] in (0, 2) and d[11] in (0, 1), _solo),
     ("solo_status", FORM_BACKUP + [EL_SOLO_STATUS, _, 0, 0, 0, 0, _], None,

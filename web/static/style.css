@@ -1,0 +1,85 @@
+:root {
+  --bg: #15171c;
+  --panel: #1e2128;
+  --line: #2c3039;
+  --text: #e7e9ee;
+  --dim: #878e9c;
+  --accent: #4da3ff;
+  --mute: #ff5d5d;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* Room for the home indicator on phones. */
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+header {
+  display: flex;
+  align-items: baseline;
+  gap: .75rem;
+  padding: .75rem 1rem;
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+}
+
+h1 { font-size: 1rem; margin: 0; letter-spacing: .04em; }
+
+#status { font-size: .75rem; color: var(--dim); }
+#status.online { color: var(--accent); }
+#status.offline { color: var(--mute); }
+
+main { padding: .5rem; }
+
+.strip {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: .75rem;
+  padding: .6rem .8rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin-bottom: .4rem;
+}
+
+.strip.master { border-color: var(--accent); }
+
+.label {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.number { color: var(--dim); font-size: .75rem; margin-right: .4rem; }
+
+.value {
+  font-variant-numeric: tabular-nums;
+  color: var(--dim);
+  min-width: 4.5rem;
+  text-align: right;
+}
+
+.mute {
+  width: 2.75rem;
+  text-align: center;
+  font-size: .7rem;
+  font-weight: 700;
+  letter-spacing: .06em;
+  padding: .25rem 0;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+  color: var(--dim);
+}
+
+.mute.on { background: var(--mute); border-color: var(--mute); color: #fff; }
+
+.empty { color: var(--dim); padding: 2rem 1rem; text-align: center; }
