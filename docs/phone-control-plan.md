@@ -17,7 +17,7 @@ is the same stale-docs problem as any other.
 | FOH access | A shared PIN, set in the setup page |
 | Configuration | A setup page in the browser |
 | Coexistence | A `--backend` choice like REAPER — one at a time, not alongside |
-| Metering | Possible, deferred |
+| Metering | Built: channel inputs + stereo master, live VU in the FOH view — see [docs/01v96i.md](01v96i.md) §3.10 |
 | Channel names | Read from the console *if* it transmits them — see Step 0 |
 
 ## Stack
@@ -70,7 +70,17 @@ Two caveats found while checking:
    file. Not built. Curation matters: the musician view currently shows all 36
    channels' sends; ST-IN 1–4 need a label from here (the console transmits no name
    for them).
-5. **Later.** EQ (already decoded — UI only), metering, compressor and gate.
+5. **Metering.** *Built.* The console streams bulk meter frames on request
+   (§3.10): page 0 = the 32 channel input levels, page 4 = the stereo master
+   L/R, 14-bit, renewed every 10 s. The FOH view draws a bar beside every
+   fader — two for the master, flanking its slot — green/yellow/red. The
+   musician view has none yet: the aux/bus meter pages (1/2/5) read zero
+   without signal routed and are unidentified — one session with auxes
+   active will identify them.
+   ST-IN fader/mute/send writes go through `protocol.channel_byte()` now;
+   before that fix, dragging ST-IN 2 moved ST-IN 1 (the backend confused
+   track indices with channel bytes).
+6. **Later.** EQ (already decoded — UI only), compressor and gate.
 
 ## Found while building
 

@@ -55,7 +55,7 @@ with one caveat: **ST-IN pan is per-side**, L and R reading −63/+63, so neithe
 | **Scene recall / store** | none | Program Change, not SysEx — a different message class |
 | **Fader / mute groups** | none | |
 | **Effects processors 1–4** | none | |
-| **Metering** | none | The remote-meter request exists in the protocol |
+| **Metering** | working | Remote-meter class decoded: channel inputs + stereo master, streamed on request ([docs/01v96i.md](01v96i.md) §3.10); aux/bus pages unidentified |
 
 ## What each use needs
 
