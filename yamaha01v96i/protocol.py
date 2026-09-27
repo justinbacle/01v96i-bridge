@@ -69,6 +69,18 @@ def channel_index(b7: int) -> Optional[int]:
     return None
 
 
+def channel_byte(index: int) -> Optional[int]:
+    """Inverse of channel_index: the byte to *write* for a track index.
+
+    ST-IN tracks live on their L slot; the R slot is linked and follows.
+    """
+    if 0 <= index < MONO_CHANNELS:
+        return index
+    if MONO_CHANNELS <= index < MONO_CHANNELS + ST_IN_COUNT:
+        return ST_IN_FIRST + 2 * (index - MONO_CHANNELS)
+    return None
+
+
 # --- Channel names (docs/01v96i.md §3.9) ------------------------------------- #
 
 # One character per message, the parameter number being the index. Only the 32

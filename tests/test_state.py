@@ -84,7 +84,11 @@ class StateTest(unittest.TestCase):
 
     def test_ignored_events_do_not_create_channels(self):
         # The right-hand slot of a linked ST-IN pair must not appear as a strip.
-        self.feed(encoder.channel_fader_db(protocol.ST_IN_FIRST + 1, 0.0))
+        # The encoder takes track indices, so the R-slot message is built raw.
+        st_in_1_right = protocol.ST_IN_FIRST + 1
+        payload = [0x43, 0x10, 0x3E, 0x7F, 0x01, 0x1C, 0x00, st_in_1_right,
+                   0x00, 0x00, 0x03, 0x33]
+        self.feed(payload)
         self.assertEqual(self.state.channels, {})
 
 

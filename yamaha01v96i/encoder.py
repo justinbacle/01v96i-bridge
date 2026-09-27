@@ -32,8 +32,15 @@ def parameter_request(element: int, param: int, channel: int) -> List[int]:
 
 
 def channel_fader(channel: int, raw: int) -> List[int]:
-    """Set a channel fader by position index (0..1023). See protocol.fader_raw()."""
-    return parameter_change(_parser.EL_CH_FADER, 0, channel, raw)
+    """Set a channel fader by position index (0..1023). See protocol.fader_raw().
+
+    `channel` is the track index: 0..31 for the mono channels, then the ST-IN
+    tracks -- which live on their L slot, the R slot being linked.
+    """
+    byte = p.channel_byte(channel)
+    if byte is None:
+        raise ValueError(f"no channel byte for track index {channel}")
+    return parameter_change(_parser.EL_CH_FADER, 0, byte, raw)
 
 
 def channel_fader_db(channel: int, db: float) -> List[int]:
@@ -43,7 +50,10 @@ def channel_fader_db(channel: int, db: float) -> List[int]:
 
 def channel_on(channel: int, on: bool) -> List[int]:
     """Set a channel's ON state (True = unmuted, matching the console)."""
-    return parameter_change(_parser.EL_CH_ON, 0, channel, int(on))
+    byte = p.channel_byte(channel)
+    if byte is None:
+        raise ValueError(f"no channel byte for track index {channel}")
+    return parameter_change(_parser.EL_CH_ON, 0, byte, int(on))
 
 
 def pan(channel: int, value: float) -> List[int]:
@@ -167,9 +177,15 @@ def request_channel_name(channel: int, index: int) -> List[int]:
 
 
 def aux_send(aux: int, channel: int, raw: int) -> List[int]:
-    """Set a channel's send to an aux (1-based aux number) by fader position."""
+    """Set a channel's send to an aux (1-based aux number) by fader position.
+
+    `channel` is the track index; ST-IN tracks write to their L slot.
+    """
     param = next(k for k, v in _parser.AUX_SEND_PARAMS.items() if v == aux)
-    return parameter_change(_parser.EL_AUX_SEND, param, channel, raw)
+    byte = p.channel_byte(channel)
+    if byte is None:
+        raise ValueError(f"no channel byte for track index {channel}")
+    return parameter_change(_parser.EL_AUX_SEND, param, byte, raw)
 
 
 def request_aux_send(aux: int, channel: int) -> List[int]:
