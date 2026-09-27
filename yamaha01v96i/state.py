@@ -10,7 +10,7 @@ accumulated here rather than in the parser, which stays one-event-per-message.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from . import events as ev
 from . import protocol as p
@@ -58,6 +58,10 @@ class ConsoleState:
         self.aux_on: Dict[int, bool] = {}
         self.bus_faders: Dict[int, float] = {}
         self.bus_on: Dict[int, bool] = {}
+        # The console's 14-bit meter scale, streamed while metering is on.
+        self.meters: Dict[int, int] = {}
+        # Stereo master L/R on the same scale.
+        self.master_meters: Tuple[int, ...] = ()
 
     def channel(self, index: int) -> ChannelState:
         return self.channels.setdefault(index, ChannelState(index=index))
@@ -80,6 +84,7 @@ class ConsoleState:
         return (self.master_db, self.master_muted,
                 tuple(sorted(self.aux_masters.items())), tuple(sorted(self.aux_on.items())),
                 tuple(sorted(self.bus_faders.items())), tuple(sorted(self.bus_on.items())),
+                tuple(sorted(self.meters.items())), self.master_meters,
                 index in self.channels)
 
     def _apply(self, event: ev.MixerEvent) -> None:
@@ -115,6 +120,10 @@ class ConsoleState:
             self.bus_faders[event.bus] = event.db
         elif isinstance(event, ev.BusOnChanged):
             self.bus_on[event.bus] = event.on
+        elif isinstance(event, ev.MeterLevels):
+            self.meters = {i: level for i, level in enumerate(event.levels)}
+        elif isinstance(event, ev.MasterMeterLevels):
+            self.master_meters = event.levels
 
     def snapshot(self) -> Dict[str, Any]:
         """JSON-ready picture of everything known."""
@@ -138,4 +147,6 @@ class ConsoleState:
             "aux_on": dict(sorted(self.aux_on.items())),
             "bus_faders": dict(sorted(self.bus_faders.items())),
             "bus_on": dict(sorted(self.bus_on.items())),
+            "meters": {str(i): level for i, level in sorted(self.meters.items())},
+            "master_meters": list(self.master_meters),
         }

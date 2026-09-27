@@ -177,6 +177,15 @@ def main() -> int:
     if args.sync and outport is not None:
         threading.Thread(target=request_state, args=(outport,), daemon=True).start()
 
+        # Metering streams for 10 s per request; re-request to keep it alive.
+        def meter_loop() -> None:
+            while True:
+                for payload in encoder.request_meters():
+                    outport.send(mido.Message("sysex", data=payload))
+                time.sleep(10)
+
+        threading.Thread(target=meter_loop, daemon=True).start()
+
     def check_exit() -> None:
         while True:
             try:

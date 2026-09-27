@@ -19,6 +19,8 @@ const masterDbEl = document.querySelector("[data-master-db]");
 const masterMuteEl = document.querySelector("[data-master-mute]");
 const auxSelect = document.getElementById("aux-select");
 const viewButtons = document.querySelectorAll("#view-switch [data-view]");
+const mmL = document.querySelector("[data-mm-l]");
+const mmR = document.querySelector("[data-mm-r]");
 
 const THROW_MAX = 1023;        // the console's fader resolution (HIGH)
 const SEND_INTERVAL_MS = 50;   // ~20 updates/s per fader, like the backend's own throttle
@@ -156,6 +158,9 @@ function renderMaster(state) {
   if (view === "musician") {
     // A musician sees their aux's own fader, not the stereo master.
     masterLabelEl.innerHTML = `<span class="number">AUX</span>${aux}`;
+    // No VU bars: the console's aux meter page is not identified yet.
+    mmL.parentElement.style.display = "none";
+    mmR.parentElement.style.display = "none";
     const db = state.aux_masters[String(aux)] ?? null;
     if (!dragging.has("master")) {
       masterHandle.setRaw(db === null ? 0 : Math.round(lawRaw(SEND_LAW, db)), false);
@@ -166,6 +171,8 @@ function renderMaster(state) {
     masterMuteEl.classList.toggle("on", on === false);
     return;
   }
+  mmL.parentElement.style.display = "";
+  mmR.parentElement.style.display = "";
   masterLabelEl.innerHTML = `<span class="number">ST</span>Master`;
   const db = state.master.fader_db;
   if (!dragging.has("master")) {
@@ -174,6 +181,31 @@ function renderMaster(state) {
   masterDbEl.textContent = formatDb(db);
   masterMuteEl.textContent = state.master.muted ? "MUTE" : "ON";
   masterMuteEl.classList.toggle("on", Boolean(state.master.muted));
+  renderMasterMeters(state);
+}
+
+function renderMasterMeters(state) {
+  const levels = state.master_meters || [];
+  if (!levels.length) {
+    setMeterLevel(mmL, undefined);
+    setMeterLevel(mmR, undefined);
+    return;
+  }
+  setMeterLevel(mmL, levels[0]);
+  setMeterLevel(mmR, levels[1]);
+}
+
+// The single place a level becomes a bar's height and colour.
+function setMeterLevel(bar, level) {
+  if (level === undefined || level === null) {
+    bar.style.height = "0%";
+    bar.className = "meter";
+    return;
+  }
+  const fraction = Math.min(1, level / METER_MAX);
+  bar.style.height = `${fraction * 100}%`;
+  bar.className = "meter " + (fraction >= METER_RED ? "red"
+    : fraction >= METER_YELLOW ? "yellow" : "green");
 }
 
 function renderStrip(channel) {
@@ -185,6 +217,7 @@ function renderStrip(channel) {
     strips.set(channel.index, strip);
     insertStripInOrder(strip.root, channel.index);
   }
+  renderMeter(strip, channel.index, lastState);
   if (view === "musician") {
     const db = channel.aux_sends[String(aux)] ?? null;
     if (!dragging.has(key)) {
@@ -199,6 +232,17 @@ function renderStrip(channel) {
   if (view === "musician") return;   // sends have no mute of their own to show
   strip.mute.textContent = channel.muted ? "MUTE" : "ON";
   strip.mute.classList.toggle("on", Boolean(channel.muted));
+}
+
+// The console streams 14-bit input levels: preamp noise reads ~100 on open
+// inputs, program audio sits well above that. A thin bar beside the fader
+// slot, green below -10 dB, yellow through unity, red past it.
+const METER_MAX = 16383;          // 14-bit
+const METER_YELLOW = 0.45;       // fractions of full scale
+const METER_RED = 0.85;
+
+function renderMeter(strip, index, state) {
+  setMeterLevel(strip.meter, state?.meters?.[String(index)]);
 }
 
 // Strips arrive in whatever order the console talks about channels; keep the
@@ -343,6 +387,14 @@ function buildStrip(index, label, key) {
 
   const fader = document.createElement("div");
 
+  // The channel meter, drawn as a bar beside the fader slot.
+  const meterTrack = document.createElement("div");
+  meterTrack.className = "meter-track";
+  const meter = document.createElement("div");
+  meter.className = "meter";
+  meterTrack.append(meter);
+  fader.append(meterTrack);
+
   const db = document.createElement("span");
   db.className = "value";
 
@@ -352,7 +404,7 @@ function buildStrip(index, label, key) {
 
   if (isSend) {
     root.append(nameEl, fader, db);
-    return {root, key, handle, db};
+    return {root, key, handle, db, meter};
   }
 
   const mute = document.createElement("button");
@@ -369,7 +421,7 @@ function buildStrip(index, label, key) {
   });
 
   root.append(nameEl, fader, db, mute);
-  return {root, key, handle, db, mute};
+  return {root, key, handle, db, meter, mute};
 }
 
 // The master strip lives in the HTML; in musician view it is the selected

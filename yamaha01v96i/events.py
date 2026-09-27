@@ -133,6 +133,22 @@ class ChannelNameChar(MixerEvent):
 
 
 @dataclass(frozen=True)
+class MeterLevels(MixerEvent):
+    """Every channel's level at once, as the remote-meter reply.
+
+    The console streams this every 50 ms while metering is enabled. Levels are
+    the console's own 0..32 meter scale, one per channel index 0..31.
+    """
+    levels: Tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class MasterMeterLevels(MixerEvent):
+    """The stereo master's L/R levels, from the master meter page."""
+    levels: Tuple[int, ...]   # (left, right), 14-bit each
+
+
+@dataclass(frozen=True)
 class SoloChanged(MixerEvent):
     channel: int
     soloed: bool

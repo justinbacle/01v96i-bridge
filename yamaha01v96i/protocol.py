@@ -26,6 +26,23 @@ ADDRESS_BACKUP = 0x04
 # Emitted by the console roughly 6x/second. ADDRESS 0x7F is undocumented.
 KEEPALIVE = (YAMAHA_ID, DEVICE_BYTE, GROUP_ID, MODEL_01V96I, 0x7F)
 
+# --- Remote metering (docs/01v96i.md §3.10) ----------------------------------- #
+# One request makes the console stream a bulk meter frame every ~60 ms for
+# 10 s; re-request to keep it running. The page is the first address byte:
+#   page 0 = 32 channel input levels (14-bit each)
+#   page 4 = stereo master L/R (two 14-bit levels)
+# Other pages stream too (1, 2, 5 = 8 levels each; likely auxes, buses and
+# ST-IN) but read zero on this desk with no aux sends -- unidentified.
+#
+# The reply is 43 10 3E 1A 21 <page> 00 00 followed by the levels, 14-bit
+# each, MSB first. Open inputs read ~90-150 (preamp noise), so the scale is
+# fine-grained, not the front panel's 0..32 segments.
+METER_ELEMENT = 0x21
+METER_CHANNEL_PAGE = 0x00
+METER_MASTER_PAGE = 0x04
+METER_LEVELS = 32
+METER_LEVEL_MAX = (1 << 14) - 1
+
 # --- Channel numbering (docs/01v96i.md §6) ----------------------------------- #
 
 MONO_CHANNELS = 32   # CH1..CH32, across the 1-16 and 17-32 layers

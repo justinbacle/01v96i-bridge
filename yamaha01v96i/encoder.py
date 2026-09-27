@@ -177,6 +177,20 @@ def request_aux_send(aux: int, channel: int) -> List[int]:
     return parameter_request(_parser.EL_AUX_SEND, param, channel)
 
 
+def request_meters() -> List[List[int]]:
+    """Ask the console to stream levels for the next 10 s.
+
+    A different message class from a parameter request: element 0x21 with a
+    three-byte address and a two-byte count (SUB STATUS 3n). The first
+    address byte is the meter page: 0 = the 32 channel inputs, 4 = the stereo
+    master L/R. The console replies with a bulk frame every ~60 ms; re-send
+    every few seconds to keep the streams running.
+    """
+    return [[p.YAMAHA_ID, p.REQUEST_DEVICE_BYTE, p.GROUP_ID, p.MODEL_01V96I,
+             p.METER_ELEMENT, page, 0x00, 0x00, 0x00, p.METER_LEVELS]
+            for page in (p.METER_CHANNEL_PAGE, p.METER_MASTER_PAGE)]
+
+
 def channel_bytes() -> List[int]:
     """Every channel byte worth requesting: the mono channels plus each ST-IN L slot.
 

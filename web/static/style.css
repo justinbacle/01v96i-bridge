@@ -176,6 +176,43 @@ main {
   touch-action: none;
 }
 
+/* Channel meter: a bar beside the slot, growing from the bottom. */
+.meter-track {
+  position: absolute;
+  left: calc(50% - 1.55rem);
+  top: .75rem;
+  bottom: .75rem;
+  width: .3rem;
+  background: var(--track);
+  border-radius: 2px;
+  border: 1px solid var(--line);
+  overflow: hidden;
+  display: flex;
+  align-items: flex-end;
+}
+
+.meter {
+  width: 100%;
+  height: 0%;
+  border-radius: 0;
+  transition: height .1s linear;
+}
+
+.meter.green { background: #3ddc74; }
+.meter.yellow { background: #ffd23d; }
+.meter.red { background: #ff5d5d; }
+
+/* The master's two bars (L/R) flank its fader slot; channels have one bar
+   on the left. Same .meter-track / .meter parts as a channel strip. */
+.meter-track.master-l {
+  left: calc(50% - 2.15rem);
+}
+
+.meter-track.master-r {
+  left: calc(50% - 0.75rem);
+  width: .3rem;
+}
+
 /* the ridge across the cap */
 .fader .cap::after {
   content: "";
