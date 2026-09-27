@@ -2,8 +2,9 @@
 
 Turns a **Yamaha 01V96i digital mixer** into a control surface for whatever you point it
 at. The console's faders, mutes, pan, surround position, solo and EQ are decoded from its
-MIDI SysEx and translated to a *backend*; today that means **REAPER** or **Holophonix**,
-and the console can be driven back the other way.
+MIDI SysEx and translated to a *backend*; today that means **REAPER**, **Holophonix**
+or a **phone/tablet web UI** served by the bridge itself, and the console can be driven
+back the other way.
 
 It runs on the console's **normal mixing layer**, so the desk stays a mixer while it
 controls something else — no mode switch, no REMOTE layer.
@@ -21,11 +22,26 @@ console's whole state so both sides start in step.
 | --- | --- | --- |
 | **REAPER** (OSC) | working, both directions | Faders, mutes, solo, pan, master level. See [docs/reaper.md](docs/reaper.md) |
 | **Holophonix** (OSC) | outbound; spatial controls mapped | Gain, mute, azimuth/distance from surround X/Y, EQ |
+| **Phone** (web) | working, both directions | FOH: channel faders/mutes + master. Musician: aux send mixes + aux master. See [docs/phone-control-plan.md](docs/phone-control-plan.md) |
 | ADM-OSC | not implemented | Open standard for object positions |
 | MCU / HUI | not implemented | The console speaks HUI natively on its DAW ports; see [docs/features.md](docs/features.md) |
 
 Selected automatically — REAPER if it has an OSC surface configured, otherwise
 Holophonix — or forced with `--backend`.
+
+### Phone control
+
+```bash
+./bridge --backend phone [--web-port 8080]
+```
+
+Serves a web UI (plain HTML/CSS/JS, no build step, Flask + flask-sock) on the LAN.
+Open the bridge's address on any phone browser: an **FOH** view drives channel faders,
+mutes and the stereo master; the **Musician** view picks an aux 1–8 and drives its
+per-channel send levels plus that aux's master fader. Faders mirror the console's own
+taper and position, updates flow live in both directions, and the page reconnects with
+backoff when Wi-Fi drops. A FOH PIN and per-aux channel curation are planned — see
+[docs/phone-control-plan.md](docs/phone-control-plan.md).
 
 ## How it works
 
@@ -124,12 +140,18 @@ python3 main.py [--ip <address>] [--port <port>]
 all four EQ bands on channel/aux/master, solo, ATT, EQ on/off and the console's own status
 messages are all decoded — zero unrecognised messages across ~12,600 captured. Everything
 decoded can also be sent back, so the console's motorised faders and lamps follow, and
-`--sync` reads the console's whole state at startup (~800 parameters in ~300 ms). See
-[docs/features.md](docs/features.md) for what the console offers against what is handled.
+`--sync` reads the console's whole state at startup (~1733 parameters in well under a
+second). See [docs/features.md](docs/features.md) for what the console offers against
+what is handled.
 
 **REAPER is working in both directions** — faders, mutes, solo, pan and master level, with
 master mute outbound only because REAPER does not expose it. See
 [docs/reaper.md](docs/reaper.md).
+
+**Phone control is working in both directions** — FOH (channel faders, mutes, stereo
+master) and per-musician aux mixes (send levels and the aux's own master), served as a
+web UI from the bridge. PIN protection and per-aux channel curation are still to build;
+see [docs/phone-control-plan.md](docs/phone-control-plan.md).
 
 **Holophonix is outbound only**, and its spatial controls are mapped: gain, mute, azimuth
 from pan, azimuth + distance from surround X/Y, and EQ.
@@ -162,18 +184,25 @@ yamaha01v96i/              # The 01V96i protocol API - no MIDI or OSC dependenci
     protocol.py            #   framing, value encoding, fader laws, EQ tables
     events.py              #   semantic events backends consume
     parser.py              #   message table; raw SysEx -> events
+    state.py               #   folds events into a live console snapshot
+    encoder.py             #   mirror of parser.py: events -> raw SysEx
 backends/holophonix.py     # Holophonix OSC addresses (the only place they live)
 backends/reaper.py         # REAPER OSC addresses, both directions
+backends/phone.py          # Console state -> phones, phone commands -> console
+web/server.py              # Flask + flask-sock: page, REST state, websocket push
+web/static/                # The phone UI: plain HTML/CSS/JS, no build step
 midi/ports.py              # Port listing, selection, keepalive detection
 midi/midi_sysex.py         # MIDI SysEx listener used by the run loop
 osc/osc_sender.py          # Thin UDP wrapper around python-osc
 tools/monitor.py           # Live TUI: decodes the console's SysEx as you move controls
 tools/capture.py           # Bulk MIDI capture & annotation logger
 tools/osc_dump.py          # Stand-in OSC receiver for testing without Holophonix
+tools/phone_smoke.py       # Drives the phone backend's websocket like a phone would
 tests/                     # Unit tests + golden OSC snapshot (no MIDI hardware needed)
 docs/01v96i.md             # Reverse-engineered 01V96i SysEx reference (authoritative)
 docs/features.md           # What the console offers vs what the bridge handles
 docs/reaper.md             # Using the console as a REAPER control surface
+docs/phone-control-plan.md # Phone backend plan: what is built, what is left
 docs/manuals/              # Yamaha reference and owner's manuals (the authority)
 requirements.txt
 ```
@@ -186,7 +215,7 @@ With the venv active:
 
 ```bash
 python3 -m unittest discover -s tests -v   # no MIDI hardware needed
-python3 -m flake8 main.py yamaha01v96i backends midi osc tools tests
+python3 -m flake8 main.py yamaha01v96i backends web midi osc tools tests
 python3 tools/monitor.py                   # live decode of everything the mixer sends
 python3 tools/osc_dump.py --port 4003      # print what the bridge sends over OSC
 ```
