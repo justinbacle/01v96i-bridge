@@ -81,6 +81,11 @@ def aux_master_db(aux: int, db: float) -> List[int]:
     return parameter_change(_parser.EL_AUX_FADER, 0, aux - 1, p.fader_raw(db, unity_top=True))
 
 
+def aux_master(aux: int, raw: int) -> List[int]:
+    """Set an aux master fader by fader position."""
+    return parameter_change(_parser.EL_AUX_FADER, 0, aux - 1, raw)
+
+
 def aux_on(aux: int, on: bool) -> List[int]:
     return parameter_change(_parser.EL_AUX_ON, 0, aux - 1, int(on))
 
@@ -161,6 +166,17 @@ def request_channel_name(channel: int, index: int) -> List[int]:
             p.ADDRESS_PATCH, _parser.EL_CH_NAME, index, channel]
 
 
+def aux_send(aux: int, channel: int, raw: int) -> List[int]:
+    """Set a channel's send to an aux (1-based aux number) by fader position."""
+    param = next(k for k, v in _parser.AUX_SEND_PARAMS.items() if v == aux)
+    return parameter_change(_parser.EL_AUX_SEND, param, channel, raw)
+
+
+def request_aux_send(aux: int, channel: int) -> List[int]:
+    param = next(k for k, v in _parser.AUX_SEND_PARAMS.items() if v == aux)
+    return parameter_request(_parser.EL_AUX_SEND, param, channel)
+
+
 def channel_bytes() -> List[int]:
     """Every channel byte worth requesting: the mono channels plus each ST-IN L slot.
 
@@ -176,7 +192,7 @@ def state_requests() -> List[List[int]]:
 
     Replies arrive as ordinary parameter changes, so feeding them through the
     normal parse -> backend path populates the backend with no special casing.
-    Roughly 800 messages; the console answered 32 in 16 ms, so this completes
+    Roughly 1700 messages; the console answered 32 in 16 ms, so this completes
     in well under a second.
     """
     requests: List[List[int]] = []
@@ -205,4 +221,9 @@ def state_requests() -> List[List[int]]:
         requests.append(parameter_request(_parser.EL_AUX_ON, 0, index))
         requests.append(parameter_request(_parser.EL_BUS_FADER, 0, index))
         requests.append(parameter_request(_parser.EL_BUS_ON, 0, index))
+
+    # Aux sends: every channel to every aux, for the musician view.
+    for channel in channel_bytes():
+        for aux in range(1, 9):
+            requests.append(request_aux_send(aux, channel))
     return requests

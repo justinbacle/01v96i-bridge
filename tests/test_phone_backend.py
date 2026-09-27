@@ -77,12 +77,46 @@ class PhoneBackendTest(unittest.TestCase):
         self.assertIsInstance(event, ev.MasterMuteChanged)
         self.assertTrue(event.muted)
 
+    def test_aux_send_command_reaches_the_console(self):
+        raw = protocol.fader_raw(-6.0, unity_top=True)
+        self.backend.handle_command({"action": "aux_send", "aux": 4,
+                                     "channel": 9, "raw": raw})
+        [event] = self.sent_events()
+        self.assertIsInstance(event, ev.AuxSendMoved)
+        self.assertEqual(event.aux, 4)
+        self.assertEqual(event.channel, 9)
+        self.assertAlmostEqual(event.db, -6.0, delta=0.2)
+
+    def test_aux_send_out_of_range_is_ignored(self):
+        for aux in (0, 9, -1):
+            self.backend.handle_command({"action": "aux_send", "aux": aux,
+                                         "channel": 0, "raw": 500})
+        self.assertEqual(self.outport.sent, [])
+
+    def test_aux_master_fader_command_reaches_the_console(self):
+        raw = protocol.fader_raw(-6.0, unity_top=True)
+        self.backend.handle_command({"action": "aux_master_fader", "aux": 3,
+                                     "raw": raw})
+        [event] = self.sent_events()
+        self.assertIsInstance(event, ev.AuxMasterMoved)
+        self.assertEqual(event.aux, 3)
+        self.assertAlmostEqual(event.db, -6.0, delta=0.2)
+
+    def test_aux_on_command_reaches_the_console(self):
+        self.backend.handle_command({"action": "aux_on", "aux": 5, "on": False})
+        [event] = self.sent_events()
+        self.assertIsInstance(event, ev.AuxOnChanged)
+        self.assertEqual(event.aux, 5)
+        self.assertFalse(event.on)
+
     def test_commands_without_an_outport_are_dropped(self):
         self.backend = PhoneBackend()  # no attach_outport
         self.backend.handle_command({"action": "fader", "channel": 0, "raw": 500})
         self.backend.handle_command({"action": "mute", "channel": 0, "muted": True})
         self.backend.handle_command({"action": "master_fader", "raw": 500})
         self.backend.handle_command({"action": "master_mute", "muted": True})
+        self.backend.handle_command({"action": "aux_send", "aux": 1,
+                                     "channel": 0, "raw": 500})
 
     def test_malformed_commands_are_ignored(self):
         for bad in (None, "string", [], {}, {"action": "fader"},

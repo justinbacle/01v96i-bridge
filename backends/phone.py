@@ -78,6 +78,12 @@ class PhoneBackend:
             self._set_master_fader(command)
         elif action == "master_mute":
             self._set_master_mute(command)
+        elif action == "aux_send":
+            self._set_aux_send(command)
+        elif action == "aux_master_fader":
+            self._set_aux_master_fader(command)
+        elif action == "aux_on":
+            self._set_aux_on(command)
         else:
             logging.debug(f"unhandled phone command: {command}")
 
@@ -108,6 +114,36 @@ class PhoneBackend:
         if not isinstance(muted, bool):
             return
         self._send(encoder.master_on(not muted))
+
+    def _set_aux_send(self, command: dict) -> None:
+        aux, channel, raw = (command.get("aux"), command.get("channel"),
+                             command.get("raw"))
+        if not isinstance(aux, int) or not isinstance(channel, int) \
+                or not isinstance(raw, int):
+            return
+        if not 1 <= aux <= 8:
+            return
+        if not self._throttle_ok(f"aux/{aux}/{channel}", command):
+            return
+        self._send(encoder.aux_send(aux, channel, raw))
+
+    def _set_aux_master_fader(self, command: dict) -> None:
+        aux, raw = command.get("aux"), command.get("raw")
+        if not isinstance(aux, int) or not isinstance(raw, int):
+            return
+        if not 1 <= aux <= 8:
+            return
+        if not self._throttle_ok(f"auxmaster/{aux}", command):
+            return
+        self._send(encoder.aux_master(aux, raw))
+
+    def _set_aux_on(self, command: dict) -> None:
+        aux, on = command.get("aux"), command.get("on")
+        if not isinstance(aux, int) or not isinstance(on, bool):
+            return
+        if not 1 <= aux <= 8:
+            return
+        self._send(encoder.aux_on(aux, on))
 
     def _throttle_ok(self, key: str, command: dict) -> bool:
         """Final sends always pass; a drag's intermediate values are dropped."""
