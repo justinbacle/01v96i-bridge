@@ -31,8 +31,6 @@ and the phone work is tracked in [docs/phone-control-plan.md](phone-control-plan
       proprietary ones. Reuses decoded events; address-scheme work only.
 - [ ] **Track banking in REAPER** — whether `/track/20` addresses project track 20 or the
       20th of an 8-track window is untested. Matters once more than 8 channels are used.
-- [ ] **ReaEQ** — console EQ driving REAPER. Reachable by slot (`hipass`, `loshelf`,
-      `band/@`, `hishelf`, `lopass`); not implemented.
 
 ## Console protocol (capture sessions)
 
@@ -48,8 +46,6 @@ and the phone work is tracked in [docs/phone-control-plan.md](phone-control-plan
       advertising AP mode (`iw list | grep -A 10 "Supported interface modes"`, look for
       `* AP`). Also decides how phones find the bridge: QR code or printed URL versus
       mDNS.
-- [ ] **Backend coexistence** — one `--backend` at a time means REAPER and phone monitors
-      cannot share a gig. If that ever matters, `--backend` must learn to combine.
 
 ## Debt
 
