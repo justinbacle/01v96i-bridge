@@ -1,0 +1,256 @@
+:root {
+  --bg: #15171c;
+  --panel: #1e2128;
+  --line: #2c3039;
+  --text: #e7e9ee;
+  --dim: #878e9c;
+  --accent: #4da3ff;
+  --mute: #ff5d5d;
+  --track: #101216;
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* Room for the home indicator on phones. */
+  padding-bottom: env(safe-area-inset-bottom);
+  display: flex;
+  flex-direction: column;
+}
+
+header {
+  display: flex;
+  align-items: baseline;
+  gap: .75rem;
+  padding: .6rem 1rem;
+  border-bottom: 1px solid var(--line);
+  flex: none;
+}
+
+h1 { font-size: 1rem; margin: 0; letter-spacing: .04em; }
+
+#status { font-size: .75rem; color: var(--dim); }
+#status.online { color: var(--accent); }
+#status.offline { color: var(--mute); }
+
+#view-switch {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+}
+
+#view-switch button {
+  font: inherit;
+  font-size: .75rem;
+  padding: .25rem .6rem;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+  color: var(--dim);
+  background: none;
+}
+
+#view-switch button.current {
+  color: var(--text);
+  border-color: var(--accent);
+  background: rgba(77, 163, 255, .12);
+}
+
+#aux-select {
+  font: inherit;
+  font-size: .75rem;
+  padding: .25rem .4rem;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+  color: var(--text);
+  background: var(--panel);
+}
+
+/* Landscape mixer: side-by-side strips, the master pinned at the right. */
+main {
+  flex: 1;
+  display: flex;
+  align-items: stretch;
+  gap: .5rem;
+  padding: .5rem;
+  min-height: 0;
+}
+
+#channels {
+  flex: 1;
+  display: flex;
+  gap: .5rem;
+  overflow-x: auto;
+  min-width: 0;
+  /* Horizontal swipes scroll the mixer even when they start on a fader;
+     vertical drags are the fader's, decided in app.js. */
+  touch-action: pan-x;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+.strip {
+  flex: none;
+  width: 5.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: .5rem;
+  padding: .6rem .4rem .5rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.strip.master {
+  border-color: var(--accent);
+  margin-left: auto;
+}
+
+.label {
+  font-weight: 600;
+  font-size: .8rem;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.number { color: var(--dim); font-size: .75rem; margin-right: .3rem; }
+
+/* Console-style fader: a slot track with a ridged cap. Not an <input
+   type=range> -- vertical range inputs are the inconsistent, ugly part
+   of every mobile browser, and native thumbs fight the layout. */
+.fader {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  width: 3.2rem;
+  touch-action: none;
+  cursor: pointer;
+}
+
+/* the slot */
+.fader::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: .75rem;
+  bottom: .75rem;
+  width: .35rem;
+  transform: translateX(-50%);
+  background: var(--track);
+  border-radius: 2px;
+  border: 1px solid var(--line);
+}
+
+/* unity notch, positioned by the same law the cap uses */
+.fader .unity {
+  position: absolute;
+  left: 50%;
+  width: 1.1rem;
+  height: 2px;
+  transform: translate(-50%, 1px);
+  background: var(--dim);
+  opacity: .6;
+}
+
+/* the cap */
+.fader .cap {
+  position: absolute;
+  left: 50%;
+  bottom: .75rem;          /* JS positions the top */
+  width: 2.4rem;
+  height: 1.4rem;
+  transform: translateX(-50%);
+  background: linear-gradient(#3a4049, #23272e 45%, #171a20 55%, #2c3039);
+  border: 1px solid #0b0d10;
+  border-radius: 4px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, .5);
+  touch-action: none;
+}
+
+/* Channel meter: a bar beside the slot, growing from the bottom. */
+.meter-track {
+  position: absolute;
+  left: calc(50% - 1.55rem);
+  top: .75rem;
+  bottom: .75rem;
+  width: .3rem;
+  background: var(--track);
+  border-radius: 2px;
+  border: 1px solid var(--line);
+  overflow: hidden;
+  display: flex;
+  align-items: flex-end;
+}
+
+.meter {
+  width: 100%;
+  height: 0%;
+  border-radius: 0;
+  transition: height .1s linear;
+}
+
+.meter.green { background: #3ddc74; }
+.meter.yellow { background: #ffd23d; }
+.meter.red { background: #ff5d5d; }
+
+/* The master's two bars (L/R) flank its fader slot; channels have one bar
+   on the left. Same .meter-track / .meter parts as a channel strip. */
+.meter-track.master-l {
+  left: calc(50% - 2.15rem);
+}
+
+.meter-track.master-r {
+  left: calc(50% - 0.75rem);
+  width: .3rem;
+}
+
+/* the ridge across the cap */
+.fader .cap::after {
+  content: "";
+  position: absolute;
+  left: 15%;
+  right: 15%;
+  top: calc(50% - 1px);
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+}
+
+.fader.dragging .cap {
+  background: linear-gradient(#49536b, #2b3243 45%, #1d222c 55%, #38404e);
+  border-color: var(--accent);
+}
+
+.value {
+  font-variant-numeric: tabular-nums;
+  font-size: .75rem;
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+.mute {
+  flex: none;
+  width: 3.5rem;
+  text-align: center;
+  font-size: .7rem;
+  font-weight: 700;
+  letter-spacing: .06em;
+  padding: .25rem 0;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+  color: var(--dim);
+  background: none;
+}
+
+.mute.on { background: var(--mute); border-color: var(--mute); color: #fff; }
+
+.empty { color: var(--dim); padding: 2rem 1rem; text-align: center; }

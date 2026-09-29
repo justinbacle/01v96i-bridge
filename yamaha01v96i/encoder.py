@@ -32,8 +32,15 @@ def parameter_request(element: int, param: int, channel: int) -> List[int]:
 
 
 def channel_fader(channel: int, raw: int) -> List[int]:
-    """Set a channel fader by position index (0..1023). See protocol.fader_raw()."""
-    return parameter_change(_parser.EL_CH_FADER, 0, channel, raw)
+    """Set a channel fader by position index (0..1023). See protocol.fader_raw().
+
+    `channel` is the track index: 0..31 for the mono channels, then the ST-IN
+    tracks -- which live on their L slot, the R slot being linked.
+    """
+    byte = p.channel_byte(channel)
+    if byte is None:
+        raise ValueError(f"no channel byte for track index {channel}")
+    return parameter_change(_parser.EL_CH_FADER, 0, byte, raw)
 
 
 def channel_fader_db(channel: int, db: float) -> List[int]:
@@ -43,7 +50,10 @@ def channel_fader_db(channel: int, db: float) -> List[int]:
 
 def channel_on(channel: int, on: bool) -> List[int]:
     """Set a channel's ON state (True = unmuted, matching the console)."""
-    return parameter_change(_parser.EL_CH_ON, 0, channel, int(on))
+    byte = p.channel_byte(channel)
+    if byte is None:
+        raise ValueError(f"no channel byte for track index {channel}")
+    return parameter_change(_parser.EL_CH_ON, 0, byte, int(on))
 
 
 def pan(channel: int, value: float) -> List[int]:
@@ -79,6 +89,11 @@ def aux_send_db(aux: int, channel: int, db: float) -> List[int]:
 
 def aux_master_db(aux: int, db: float) -> List[int]:
     return parameter_change(_parser.EL_AUX_FADER, 0, aux - 1, p.fader_raw(db, unity_top=True))
+
+
+def aux_master(aux: int, raw: int) -> List[int]:
+    """Set an aux master fader by fader position."""
+    return parameter_change(_parser.EL_AUX_FADER, 0, aux - 1, raw)
 
 
 def aux_on(aux: int, on: bool) -> List[int]:
@@ -151,6 +166,47 @@ def request_channel_fader(channel: int) -> List[int]:
     return parameter_request(_parser.EL_CH_FADER, 0, channel)
 
 
+def request_channel_name(channel: int, index: int) -> List[int]:
+    """Ask for one character of a channel's name (docs/01v96i.md §3.9).
+
+    Names live in the patch-data space, not the edit buffer, so this cannot use
+    parameter_request().
+    """
+    return [p.YAMAHA_ID, p.REQUEST_DEVICE_BYTE, p.GROUP_ID, p.MODEL_01V96I,
+            p.ADDRESS_PATCH, _parser.EL_CH_NAME, index, channel]
+
+
+def aux_send(aux: int, channel: int, raw: int) -> List[int]:
+    """Set a channel's send to an aux (1-based aux number) by fader position.
+
+    `channel` is the track index; ST-IN tracks write to their L slot.
+    """
+    param = next(k for k, v in _parser.AUX_SEND_PARAMS.items() if v == aux)
+    byte = p.channel_byte(channel)
+    if byte is None:
+        raise ValueError(f"no channel byte for track index {channel}")
+    return parameter_change(_parser.EL_AUX_SEND, param, byte, raw)
+
+
+def request_aux_send(aux: int, channel: int) -> List[int]:
+    param = next(k for k, v in _parser.AUX_SEND_PARAMS.items() if v == aux)
+    return parameter_request(_parser.EL_AUX_SEND, param, channel)
+
+
+def request_meters() -> List[List[int]]:
+    """Ask the console to stream levels for the next 10 s.
+
+    A different message class from a parameter request: element 0x21 with a
+    three-byte address and a two-byte count (SUB STATUS 3n). The first
+    address byte is the meter page: 0 = the 32 channel inputs, 4 = the stereo
+    master L/R. The console replies with a bulk frame every ~60 ms; re-send
+    every few seconds to keep the streams running.
+    """
+    return [[p.YAMAHA_ID, p.REQUEST_DEVICE_BYTE, p.GROUP_ID, p.MODEL_01V96I,
+             p.METER_ELEMENT, page, 0x00, 0x00, 0x00, p.METER_LEVELS]
+            for page in (p.METER_CHANNEL_PAGE, p.METER_MASTER_PAGE)]
+
+
 def channel_bytes() -> List[int]:
     """Every channel byte worth requesting: the mono channels plus each ST-IN L slot.
 
@@ -166,7 +222,7 @@ def state_requests() -> List[List[int]]:
 
     Replies arrive as ordinary parameter changes, so feeding them through the
     normal parse -> backend path populates the backend with no special casing.
-    Roughly 800 messages; the console answered 32 in 16 ms, so this completes
+    Roughly 1700 messages; the console answered 32 in 16 ms, so this completes
     in well under a second.
     """
     requests: List[List[int]] = []
@@ -185,9 +241,19 @@ def state_requests() -> List[List[int]]:
     for eq_param in list(p.EQ_PARAMS) + [_parser.EQ_ON_PARAM]:
         requests.append(parameter_request(_parser.EL_MASTER_EQ, eq_param, 0))
 
+    # Names are one request per character, and only the mono channels have them.
+    for channel in p.NAMED_CHANNELS:
+        for index in p.NAME_INDICES:
+            requests.append(request_channel_name(channel, index))
+
     for index in range(8):
         requests.append(parameter_request(_parser.EL_AUX_FADER, 0, index))
         requests.append(parameter_request(_parser.EL_AUX_ON, 0, index))
         requests.append(parameter_request(_parser.EL_BUS_FADER, 0, index))
         requests.append(parameter_request(_parser.EL_BUS_ON, 0, index))
+
+    # Aux sends: every channel to every aux, for the musician view.
+    for channel in channel_bytes():
+        for aux in range(1, 9):
+            requests.append(request_aux_send(aux, channel))
     return requests

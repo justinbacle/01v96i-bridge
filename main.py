@@ -12,6 +12,7 @@ import threading
 import time
 
 from backends.holophonix import HolophonixBackend
+from backends.phone import PhoneBackend
 from backends.reaper import ReaperBackend, discover_listen_port, discover_osc_surface
 import mido
 
@@ -23,7 +24,10 @@ from osc.osc_sender import OSCSender
 from yamaha01v96i import encoder, parse
 
 
-BACKENDS = {"holophonix": HolophonixBackend, "reaper": ReaperBackend}
+# The OSC backends take a sender; the phone backend is its own target and takes
+# none, so it is constructed separately below.
+OSC_BACKENDS = {"holophonix": HolophonixBackend, "reaper": ReaperBackend}
+BACKENDS = sorted(OSC_BACKENDS) + ["phone"]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -37,9 +41,11 @@ def build_parser() -> argparse.ArgumentParser:
                                           "(substring match; skips the prompt)")
     parser.add_argument("--midi-out", help="MIDI output port: the console's Rx PORT "
                                            "(substring match; enables sending)")
-    parser.add_argument("--backend", choices=sorted(BACKENDS),
+    parser.add_argument("--backend", choices=BACKENDS,
                         help="OSC address scheme (default: reaper when REAPER has an "
                              "OSC surface configured, else holophonix)")
+    parser.add_argument("--web-port", type=int, default=8080,
+                        help="port the phone UI is served on (phone backend only)")
     parser.add_argument("--listen-port", type=int,
                         help="UDP port to receive OSC feedback on, so the DAW can drive "
                              "the console (reaper backend only)")
@@ -103,6 +109,7 @@ def main() -> int:
 
     sender = OSCSender(ip, port)
     inbound: ReaperInbound | None = None
+    phone: PhoneBackend | None = None
 
     class EchoAwareSender:
         """Passes sends through, recording them so REAPER's echo can be ignored."""
@@ -112,7 +119,11 @@ def main() -> int:
                 inbound.note_sent(address, values[0])
             sender.send(address, *values)
 
-    backend = BACKENDS[backend_name](EchoAwareSender())
+    if backend_name == "phone":
+        phone = PhoneBackend(port=args.web_port)
+        backend = phone
+    else:
+        backend = OSC_BACKENDS[backend_name](EchoAwareSender())
 
     midi_port = ports.resolve_input(args.midi_in)
     midi_out = ports.resolve_output(args.midi_out)
@@ -144,6 +155,9 @@ def main() -> int:
     elif args.sync:
         logging.warning("No MIDI output found: starting without console state.")
 
+    if phone is not None and outport is not None:
+        phone.attach_outport(outport)
+
     receiver = None
     if listen_port is not None and backend_name != "reaper":
         logging.info("Return path is only implemented for the reaper backend.")
@@ -163,6 +177,15 @@ def main() -> int:
     if args.sync and outport is not None:
         threading.Thread(target=request_state, args=(outport,), daemon=True).start()
 
+        # Metering streams for 10 s per request; re-request to keep it alive.
+        def meter_loop() -> None:
+            while True:
+                for payload in encoder.request_meters():
+                    outport.send(mido.Message("sysex", data=payload))
+                time.sleep(10)
+
+        threading.Thread(target=meter_loop, daemon=True).start()
+
     def check_exit() -> None:
         while True:
             try:
@@ -176,6 +199,9 @@ def main() -> int:
                 break
         listener.stop()
         logging.info("Exiting Sysex listener...")
+
+    if phone is not None:
+        phone.start()
 
     threading.Thread(target=check_exit, daemon=True).start()
     logging.info(f"Listening for Sysex on {midi_port}... (press 'q' + Enter to exit)")

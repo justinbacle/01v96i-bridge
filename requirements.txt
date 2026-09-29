@@ -1,3 +1,5 @@
 mido
 python-osc
 python-rtmidi
+flask
+flask-sock

@@ -19,11 +19,29 @@ MODEL_UNIVERSAL = 0x7F      # "Universal" model ID
 MODEL_01V96I = 0x1A         # 01V96i-specific model ID
 
 ADDRESS_EDIT_BUFFER = 0x01
+ADDRESS_PATCH = 0x02
 ADDRESS_SETUP = 0x03
 ADDRESS_BACKUP = 0x04
 
 # Emitted by the console roughly 6x/second. ADDRESS 0x7F is undocumented.
 KEEPALIVE = (YAMAHA_ID, DEVICE_BYTE, GROUP_ID, MODEL_01V96I, 0x7F)
+
+# --- Remote metering (docs/01v96i.md §3.10) ----------------------------------- #
+# One request makes the console stream a bulk meter frame every ~60 ms for
+# 10 s; re-request to keep it running. The page is the first address byte:
+#   page 0 = 32 channel input levels (14-bit each)
+#   page 4 = stereo master L/R (two 14-bit levels)
+# Other pages stream too (1, 2, 5 = 8 levels each; likely auxes, buses and
+# ST-IN) but read zero on this desk with no aux sends -- unidentified.
+#
+# The reply is 43 10 3E 1A 21 <page> 00 00 followed by the levels, 14-bit
+# each, MSB first. Open inputs read ~90-150 (preamp noise), so the scale is
+# fine-grained, not the front panel's 0..32 segments.
+METER_ELEMENT = 0x21
+METER_CHANNEL_PAGE = 0x00
+METER_MASTER_PAGE = 0x04
+METER_LEVELS = 32
+METER_LEVEL_MAX = (1 << 14) - 1
 
 # --- Channel numbering (docs/01v96i.md §6) ----------------------------------- #
 
@@ -49,6 +67,34 @@ def channel_index(b7: int) -> Optional[int]:
     if 0 <= offset < ST_IN_COUNT * 2:
         return None if offset % 2 else MONO_CHANNELS + offset // 2
     return None
+
+
+def channel_byte(index: int) -> Optional[int]:
+    """Inverse of channel_index: the byte to *write* for a track index.
+
+    ST-IN tracks live on their L slot; the R slot is linked and follows.
+    """
+    if 0 <= index < MONO_CHANNELS:
+        return index
+    if MONO_CHANNELS <= index < MONO_CHANNELS + ST_IN_COUNT:
+        return ST_IN_FIRST + 2 * (index - MONO_CHANNELS)
+    return None
+
+
+# --- Channel names (docs/01v96i.md §3.9) ------------------------------------- #
+
+# One character per message, the parameter number being the index. Only the 32
+# mono channels have names; ST-IN returns nothing.
+NAME_SHORT = range(0, 4)      # 4 characters
+NAME_LONG = range(4, 20)      # 16 characters
+NAME_INDICES = range(0, 20)
+NAMED_CHANNELS = range(0, MONO_CHANNELS)
+
+
+def name_text(characters: dict, indices: range) -> str:
+    """Assemble a name from {index: byte}, blanks for anything not yet seen."""
+    codes = (characters.get(i, 32) for i in indices)
+    return "".join(chr(c) if 32 <= c < 127 else " " for c in codes).rstrip()
 
 
 # --- The data field (docs/01v96i.md §4.1) ------------------------------------ #

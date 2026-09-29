@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>01V96i</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>01V96i</h1>
+  <span id="status" class="offline">connecting</span>
+  <span id="view-switch">
+    <button type="button" data-view="foh" class="current">FOH</button>
+    <button type="button" data-view="musician">Musician</button>
+    <select id="aux-select" hidden>
+      <option value="1">Aux 1</option>
+      <option value="2">Aux 2</option>
+      <option value="3">Aux 3</option>
+      <option value="4">Aux 4</option>
+      <option value="5">Aux 5</option>
+      <option value="6">Aux 6</option>
+      <option value="7">Aux 7</option>
+      <option value="8">Aux 8</option>
+    </select>
+  </span>
+</header>
+
+<main>
+  <div id="channels"></div>
+
+  <section id="master" class="strip master">
+    <span class="label"><span class="number">ST</span>Master</span>
+    <div class="fader" data-master-fader>
+      <div class="meter-track master-l"><div class="meter" data-mm-l></div></div>
+      <div class="meter-track master-r"><div class="meter" data-mm-r></div></div>
+    </div>
+    <span class="value" data-master-db>–</span>
+    <button class="mute" data-master-mute type="button"></button>
+  </section>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>

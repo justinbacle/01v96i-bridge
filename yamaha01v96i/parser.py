@@ -20,6 +20,7 @@ _ = None  # reads as a wildcard in the tables below
 
 H = [p.YAMAHA_ID, p.DEVICE_BYTE, p.GROUP_ID]
 FORM_A = H + [p.MODEL_UNIVERSAL, p.ADDRESS_EDIT_BUFFER]
+FORM_PATCH = H + [p.MODEL_01V96I, p.ADDRESS_PATCH]
 FORM_SETUP = H + [p.MODEL_01V96I, p.ADDRESS_SETUP]
 FORM_BACKUP = H + [p.MODEL_01V96I, p.ADDRESS_BACKUP]
 
@@ -29,6 +30,7 @@ EL_CH_ON = 0x1A
 EL_PAN = 0x1B
 EL_CH_FADER = 0x1C
 EL_ATT = 0x1D
+EL_CH_NAME = 0x04
 EL_CH_EQ = 0x20
 EL_AUX_SEND = 0x23
 EL_SURROUND = 0x25
@@ -148,6 +150,15 @@ def _surround(data):
                             p.decode_value(data) / p.PAN_MAX)
 
 
+def _channel_name(data):
+    channel = _channel(data)
+    if channel is None:
+        return _linked_slot(data)
+    code = data[11]
+    return ev.ChannelNameChar(tuple(data), channel, data[6],
+                              chr(code) if 32 <= code < 127 else " ")
+
+
 def _solo(data):
     # Params 0 and 2 mirror each other on every press; act on one only.
     ch = _channel(data)
@@ -214,11 +225,28 @@ def _status(kind: str) -> Callable[[List[int]], ev.MixerEvent]:
     return factory
 
 
+def _meter_levels(data):
+    # 43 10 3E 1A 21 <page> 00 00, then the levels: two 7-bit bytes each, MSB
+    # first. Page 0 carries the 32 channels, page 4 the stereo master L/R.
+    n = (len(data) - 8) // 2
+    levels = tuple((data[8 + 2 * i] << 7) | data[9 + 2 * i] for i in range(n))
+    if data[5] == p.METER_MASTER_PAGE:
+        return ev.MasterMeterLevels(tuple(data), levels)
+    return ev.MeterLevels(tuple(data), levels)
+
+
 # --- The message table ------------------------------------------------------- #
 # Order matters: first match wins. Keepalive first, the broad EQ match last.
 
 MESSAGES = [
     ("keepalive", list(p.KEEPALIVE), None, _keepalive),
+    # The bulk meter reply: 43 10 3E 1A 21, page, two zeros, then the levels
+    # (two 7-bit bytes each, MSB first). Page 0 = 32 channels, 4 = master L/R.
+    # The ten-byte request echo is too short to match.
+    # The bulk meter reply: 43 10 3E 1A 21, page, two zeros, then the levels
+    # (two 7-bit bytes each, MSB first). Page 0 = 32 channels, 4 = master L/R.
+    # Handled in parse() directly -- pages differ in length, and the table's
+    # templates match exact lengths.
     ("master_fader", FORM_A + [EL_MASTER_FADER, 0, _, _, _, _, _],
      lambda d: d[7] in (0, 1), _master_fader),
     ("master_mute_form_a", FORM_A + [EL_MASTER_ON, 0, _, 0, 0, 0, _],
@@ -235,6 +263,8 @@ MESSAGES = [
      lambda d: p.is_channel_byte(d[7]) and d[6] in AUX_SEND_PARAMS, _aux_send),
     ("aux_master", FORM_A + [EL_AUX_FADER, 0, _, _, _, _, _],
      lambda d: 0 <= d[7] <= 7, _aux_master),
+    ("channel_name", FORM_PATCH + [EL_CH_NAME, _, _, 0, 0, 0, _],
+     lambda d: d[7] in p.NAMED_CHANNELS and d[6] in p.NAME_INDICES, _channel_name),
     ("solo", FORM_SETUP + [EL_SOLO, _, _, 0, 0, 0, _],
      lambda d: p.is_channel_byte(d[7]) and d[6] in (0, 2) and d[11] in (0, 1), _solo),
     ("solo_status", FORM_BACKUP + [EL_SOLO_STATUS, _, 0, 0, 0, 0, _], None,
@@ -273,6 +303,8 @@ MESSAGES = [
 
 def identify(data: List[int]) -> Optional[str]:
     """Name of the first matching message type, or None if unrecognised."""
+    if _is_meter_reply(data):
+        return "meter_levels"
     for name, template, guard, _factory in MESSAGES:
         if matches(data, template) and (guard is None or guard(data)):
             return name
@@ -281,7 +313,19 @@ def identify(data: List[int]) -> Optional[str]:
 
 def parse(data: List[int]) -> Optional[ev.MixerEvent]:
     """Decode one SysEx payload into an event, or None if unrecognised/ignored."""
+    if _is_meter_reply(data):
+        return _meter_levels(data)
     for _name, template, guard, factory in MESSAGES:
         if matches(data, template) and (guard is None or guard(data)):
             return factory(data)
     return None
+
+
+def _is_meter_reply(data: List[int]) -> bool:
+    """The bulk meter reply: variable length, so not in the fixed-length table."""
+    if data[:5] != [p.YAMAHA_ID, p.DEVICE_BYTE, p.GROUP_ID, p.MODEL_01V96I,
+                    p.METER_ELEMENT]:
+        return False
+    if data[6:8] != [0, 0] or len(data) < 10 or len(data) % 2:
+        return False
+    return True

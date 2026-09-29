@@ -137,6 +137,22 @@ class EncoderParityTest(unittest.TestCase):
         self.assertNotEqual(request[1], encoder.channel_fader(0, 0)[1],
                             "request must use SUB STATUS 3n, not 1n")
 
+    def test_st_in_tracks_write_their_left_slot(self):
+        # Track index 33 is ST-IN 2, whose channel byte is 34 (the pair's L
+        # slot); writing the index directly would hit 33 = ST-IN 1's R slot
+        # and move the wrong strip.
+        for track_index, byte in [(32, 32), (33, 34), (34, 36), (35, 38)]:
+            payload = encoder.channel_fader(track_index, 500)
+            self.assertEqual(payload[7], byte)
+            # and the round trip still parses to the same track
+            event = parse(payload)
+            self.assertEqual(event.channel, track_index)
+
+    def test_unknown_track_index_is_rejected(self):
+        for bad in (-1, 36, 100):
+            with self.assertRaises(ValueError):
+                encoder.channel_fader(bad, 500)
+
 
 if __name__ == "__main__":
     unittest.main()
